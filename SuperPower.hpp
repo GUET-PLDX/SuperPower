@@ -9,7 +9,7 @@ template_args: []
 required_hardware:
   - can
 depends:
-  - qdu-future/Referee
+  - pldx/Referee
 === END MANIFEST === */
 // clang-format on
 #include <cstring>
