@@ -2,7 +2,8 @@
 
 #include <array>
 #include <cstdint>
-#include <cstring>
+
+#include "libxr_mem.hpp"
 
 namespace SuperPowerProtocol {
 
@@ -30,7 +31,7 @@ static_assert(sizeof(CommandData) == 8U, "CommandData must be eight bytes");
 
 inline FeedbackData DecodeFeedback(const uint8_t* data) {
   FeedbackData feedback{};
-  std::memcpy(&feedback, data, sizeof(feedback));
+  LibXR::Memory::FastCopy(&feedback, data, sizeof(feedback));
   return feedback;
 }
 
@@ -39,7 +40,7 @@ inline std::array<uint8_t, sizeof(CommandData)> EncodeCommand(
   std::array<uint8_t, sizeof(CommandData)> bytes{};
   constexpr size_t COMMAND_PAYLOAD_SIZE =
       sizeof(CommandData) - sizeof(command.reserved);
-  std::memcpy(bytes.data(), &command, COMMAND_PAYLOAD_SIZE);
+  LibXR::Memory::FastCopy(bytes.data(), &command, COMMAND_PAYLOAD_SIZE);
   return bytes;
 }
 
