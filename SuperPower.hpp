@@ -12,10 +12,11 @@ depends:
   - pldx/Referee
 === END MANIFEST === */
 // clang-format on
+#include <array>
 #include <cmath>
+#include <cstdint>
 
 #include "Referee.hpp"
-#include "SuperPowerProtocol.hpp"
 #include "app_framework.hpp"
 #include "can.hpp"
 #include "libxr_def.hpp"
@@ -25,6 +26,47 @@ depends:
 #include "mpmc_queue.hpp"
 #include "mutex.hpp"
 #include "timer.hpp"
+
+namespace SuperPowerProtocol {
+
+constexpr uint32_t FEEDBACK_ID = 0x051U;
+constexpr uint32_t COMMAND_ID = 0x061U;
+constexpr uint8_t ENABLE_DCDC_MASK = 0x01U;
+constexpr uint8_t SYSTEM_RESTART_MASK = 0x02U;
+
+struct __attribute__((packed)) FeedbackData {
+  uint8_t error_code;
+  float chassis_power;
+  uint16_t chassis_power_limit;
+  uint8_t cap_energy;
+};
+
+struct __attribute__((packed)) CommandData {
+  uint8_t flags;
+  uint16_t referee_power_limit;
+  uint16_t referee_energy_buffer;
+  uint8_t reserved[3];
+};
+
+static_assert(sizeof(FeedbackData) == 8U, "FeedbackData must be eight bytes");
+static_assert(sizeof(CommandData) == 8U, "CommandData must be eight bytes");
+
+inline FeedbackData DecodeFeedback(const uint8_t* data) {
+  FeedbackData feedback{};
+  LibXR::Memory::FastCopy(&feedback, data, sizeof(feedback));
+  return feedback;
+}
+
+inline std::array<uint8_t, sizeof(CommandData)> EncodeCommand(
+    const CommandData& command) {
+  std::array<uint8_t, sizeof(CommandData)> bytes{};
+  constexpr size_t COMMAND_PAYLOAD_SIZE =
+      sizeof(CommandData) - sizeof(command.reserved);
+  LibXR::Memory::FastCopy(bytes.data(), &command, COMMAND_PAYLOAD_SIZE);
+  return bytes;
+}
+
+}  // namespace SuperPowerProtocol
 
 /**
  * @class SuperPower
@@ -65,6 +107,7 @@ class SuperPower : public LibXR::Application {
                    SuperPowerProtocol::FEEDBACK_ID,
                    SuperPowerProtocol::FEEDBACK_ID);
     RegisterRefereeCallback();
+    RegisterUseCapacitorCallback();
 
     timer_handle_ =
         LibXR::Timer::CreateTask(TimerTask, this, COMMAND_PERIOD_MS);
@@ -89,7 +132,7 @@ class SuperPower : public LibXR::Application {
     snapshot.cap_energy_raw = cap_energy_;
     snapshot.error_code = error_code_;
     snapshot.chassis_power_sequence = chassis_power_sequence_;
-    snapshot.supercap_online = feedback_received_;
+    snapshot.supercap_online = feedback_received_ && use_capacitor_;
     snapshot.supercap_healthy = snapshot.supercap_online &&
                                 chassis_power_valid_ && CHASSIS_POWER_FINITE &&
                                 error_code_ == 0U;
@@ -172,6 +215,22 @@ class SuperPower : public LibXR::Application {
 
     LibXR::Topic chassis_ref_topic(topic_handle);
     chassis_ref_topic.RegisterCallback(referee_callback);
+  }
+
+  void RegisterUseCapacitorCallback() {
+    auto topic_handle =
+        LibXR::Topic::FindOrCreate<bool>("use_capacitor", nullptr, true);
+    ASSERT(topic_handle != nullptr);
+
+    auto callback = LibXR::Topic::Callback::Create(
+        [](bool in_isr, SuperPower* self, const bool& enabled) {
+          UNUSED(in_isr);
+          LibXR::Mutex::LockGuard lock(self->state_mutex_);
+          self->use_capacitor_ = enabled;
+        },
+        this);
+
+    LibXR::Topic(topic_handle).RegisterCallback(callback);
   }
 
   static void TimerTask(SuperPower* self) { self->Update(); }
@@ -268,9 +327,10 @@ class SuperPower : public LibXR::Application {
 
   void SendCommandFrame(uint32_t now_ms) {
     SuperPowerProtocol::CommandData command{};
-    command.flags = SuperPowerProtocol::ENABLE_DCDC_MASK;
     {
       LibXR::Mutex::LockGuard lock(state_mutex_);
+      command.flags =
+          use_capacitor_ ? SuperPowerProtocol::ENABLE_DCDC_MASK : 0U;
       if (referee_power_limit_received_ && referee_energy_buffer_received_ &&
           IsFreshAt(now_ms, last_referee_power_limit_rx_time_ms_,
                     REFEREE_RX_TIMEOUT_MS) &&
@@ -311,4 +371,5 @@ class SuperPower : public LibXR::Application {
   bool referee_power_limit_received_ = false;
   bool referee_energy_buffer_received_ = false;
   bool chassis_power_valid_ = false;
+  bool use_capacitor_ = true;
 };
