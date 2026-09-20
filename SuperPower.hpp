@@ -25,7 +25,7 @@ depends:
 #include "message.hpp"
 #include "mpmc_queue.hpp"
 #include "mutex.hpp"
-#include "timer.hpp"
+#include "timebase.hpp"
 
 namespace SuperPowerProtocol {
 
@@ -71,10 +71,13 @@ inline std::array<uint8_t, sizeof(CommandData)> EncodeCommand(
 /**
  * @class SuperPower
  * @brief 主控侧超级电容通信模块
- * @details CAN 与裁判系统回调只缓存数据，5ms 定时器统一解析状态并下发控制帧。
+ * @details CAN 与裁判系统回调只缓存数据，由 PowerTask 每 5ms
+ * 更新状态并下发控制帧。
  */
 class SuperPower : public LibXR::Application {
  public:
+  static constexpr uint32_t COMMAND_PERIOD_MS = 5U;
+
   struct TelemetrySnapshot {
     float chassis_power_w = 0.0f;
     uint16_t cap_chassis_power_limit_w = 0U;
@@ -108,12 +111,10 @@ class SuperPower : public LibXR::Application {
                    SuperPowerProtocol::FEEDBACK_ID);
     RegisterRefereeCallback();
     RegisterUseCapacitorCallback();
-
-    timer_handle_ =
-        LibXR::Timer::CreateTask(TimerTask, this, COMMAND_PERIOD_MS);
-    LibXR::Timer::Add(timer_handle_);
-    LibXR::Timer::Start(timer_handle_);
   }
+
+  // Call from the owning power task every COMMAND_PERIOD_MS.
+  void Update() { UpdateState(); }
 
   TelemetrySnapshot GetTelemetrySnapshot() {
     const uint32_t NOW_MS =
@@ -158,7 +159,6 @@ class SuperPower : public LibXR::Application {
   void OnMonitor() override {}
 
  private:
-  static constexpr uint32_t COMMAND_PERIOD_MS = 5U;
   static constexpr uint32_t STATUS_RX_TIMEOUT_MS = 100U;
   static constexpr uint32_t REFEREE_RX_TIMEOUT_MS = 1000U;
   static constexpr uint32_t TIMESTAMP_FUTURE_TOLERANCE_MS = 5U;
@@ -233,9 +233,7 @@ class SuperPower : public LibXR::Application {
     LibXR::Topic(topic_handle).RegisterCallback(callback);
   }
 
-  static void TimerTask(SuperPower* self) { self->Update(); }
-
-  void Update() {
+  void UpdateState() {
     FeedbackFrame feedback_frame{};
     RefereeData referee_data{};
     const uint32_t NOW_MS =
@@ -350,7 +348,6 @@ class SuperPower : public LibXR::Application {
   }
 
   LibXR::CAN* can_;
-  LibXR::Timer::TimerHandle timer_handle_ = nullptr;
   LibXR::MPMCQueue<FeedbackFrame> feedback_queue_{2};
   LibXR::MPMCQueue<RefereeData> referee_queue_{2};
   LibXR::Mutex state_mutex_;
