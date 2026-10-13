@@ -3,13 +3,8 @@
 // clang-format off
 /* === MODULE MANIFEST V2 ===
 module_description: 超级电容电源模块
-constructor_args:
-  - can_bus_name: "can1"
-template_args: []
-required_hardware:
-  - can
 depends:
-  - pldx/Referee
+- id: GUET-PLDX/Referee
 === END MANIFEST === */
 // clang-format on
 #include <array>
@@ -17,8 +12,8 @@ depends:
 #include <cstdint>
 
 #include "Referee.hpp"
-#include "app_framework.hpp"
 #include "can.hpp"
+#include "libxr.hpp"
 #include "libxr_def.hpp"
 #include "libxr_mem.hpp"
 #include "libxr_time.hpp"
@@ -74,7 +69,7 @@ inline std::array<uint8_t, sizeof(CommandData)> EncodeCommand(
  * @details CAN 与裁判系统回调只缓存数据，由 PowerTask 每 5ms
  * 更新状态并下发控制帧。
  */
-class SuperPower : public LibXR::Application {
+class SuperPower {
  public:
   static constexpr uint32_t COMMAND_PERIOD_MS = 5U;
 
@@ -94,11 +89,7 @@ class SuperPower : public LibXR::Application {
     bool referee_online = false;
   };
 
-  SuperPower(LibXR::HardwareContainer& hw, LibXR::ApplicationManager& app,
-             const char* can_bus_name)
-      : can_(hw.template FindOrExit<LibXR::CAN>({can_bus_name})) {
-    UNUSED(app);
-
+  SuperPower(LibXR::CAN& can) : can_((&can)) {
     auto rx_callback = LibXR::CAN::Callback::Create(
         [](bool in_isr, SuperPower* self, const LibXR::CAN::ClassicPack& pack) {
           RxCallback(in_isr, self, pack);
@@ -156,7 +147,7 @@ class SuperPower : public LibXR::Application {
 
   bool IsOnline() { return GetTelemetrySnapshot().supercap_online; }
 
-  void OnMonitor() override {}
+  void OnMonitor() {}
 
  private:
   static constexpr uint32_t STATUS_RX_TIMEOUT_MS = 100U;
