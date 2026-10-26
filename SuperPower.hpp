@@ -89,7 +89,7 @@ class SuperPower {
     bool referee_online = false;
   };
 
-  SuperPower(LibXR::CAN& can) : can_((&can)) {
+  SuperPower(LibXR::CAN& can) : can_(&can) {
     auto rx_callback = LibXR::CAN::Callback::Create(
         [](bool in_isr, SuperPower* self, const LibXR::CAN::ClassicPack& pack) {
           RxCallback(in_isr, self, pack);
