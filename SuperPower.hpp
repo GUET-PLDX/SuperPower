@@ -4,7 +4,7 @@
 /* === MODULE MANIFEST V2 ===
 module_description: 超级电容电源模块
 depends:
-- pldx/Referee@master
+- pldx/Referee@mc02-static
 === END MANIFEST === */
 // clang-format on
 #include <array>
